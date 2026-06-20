@@ -3,7 +3,6 @@ package pbin
 import (
 	// "log"
 	mrand "math/rand"
-	"net"
 	"net/url"
 	"sync"
 	"time"
@@ -14,17 +13,14 @@ var (
 )
 
 const (
-	unknown    option  = iota // unknown
-	Hour       Expiry  = iota // expires after 1 hour
-	Day                       // expires after 1 day
-	Week                      // expires after 1 week
-	Month                     // expires after 1 month
-	Year                      // expires after 1 year
-	Never                     // expires `"never"`
-	Burn       Feature = iota // delete after reading once
-	Discussion                // enable comments
-	UploadFile                // upload a file
-	ShortenURL                // shorten the paste url (does not support foreign urls)
+	Hour       Expiry  = iota + 1 // expires after 1 hour
+	Day                           // expires after 1 day
+	Week                          // expires after 1 week
+	Month                         // expires after 1 month
+	Year                          // expires after 1 year
+	Never                         // expires `"never"`
+	Burn       Feature = iota     // delete after reading once
+	Discussion                    // enable comments
 )
 
 type (
@@ -48,283 +44,98 @@ func processHosts() *db {
 		hosts: []*host{},
 		feats: map[option][]*host{},
 	}
+	allExpiries := []Expiry{Hour, Day, Week, Month, Year, Never}
+	standardFeatures := []Feature{Burn, Discussion}
 	for _, h := range []struct {
 		api string
 		ex  []Expiry
 		op  []Feature
 	}{ // see: https://privatebin.info/directory/
-		{"https://bin.idrix.fr/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile, ShortenURL},
-		},
-		{"https://bin.snopyta.org/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://bin.veracry.pt/",
-			[]Expiry{Hour, Day, Week, Month},
-			[]Feature{Burn, Discussion, UploadFile, ShortenURL},
-		},
-		{"https://encryp.ch/note/",
-			[]Expiry{Hour, Day, Week},
-			[]Feature{Burn, UploadFile},
-		},
-		{"https://paste.0xfc.de/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.rosset.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, UploadFile},
-		},
-		{"https://pastebin.grey.pw/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://privatebin.silkky.cloud/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://zerobin.thican.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://ceppo.xyz/PrivateBin/",
-			[]Expiry{Hour, Day, Week, Month},
-			[]Feature{Burn},
-		},
-		{"https://paste.itefix.net/",
-			[]Expiry{Hour, Day, Week, Month},
-			[]Feature{Burn},
-		},
-		{"https://paste.systemli.org/",
-			[]Expiry{Hour, Day, Week, Month, Year},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://privatebin.net/",
-			[]Expiry{Hour, Day},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://snip.dssr.ch/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.eccologic.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://chobble.com/",
-			[]Expiry{Hour, Day, Week, Month, Year},
-			[]Feature{Burn},
-		},
-		{"https://bin.acquia.com/",
-			[]Expiry{Hour, Day, Week, Month},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://p.kll.li/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, ShortenURL},
-		},
-		{"https://paste.3q3.de/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://paste.plugily.xyz/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://pb.envs.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.fizi.ca/",
-			[]Expiry{Hour, Day, Week, Month, Year},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://bin.infini.fr/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://p.dousse.eu/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://paste.d4v.is/",
-			[]Expiry{Hour, Day, Week},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://secure.quantumwijeeworks.ru/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://тайны.миры-аномалии.рф/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://bin.mezzo.moe/",
-			[]Expiry{Hour, Day, Week, Month, Year},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://pad.stoneocean.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://pastebin.aquilenet.fr/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn},
-		},
-		{"https://pastebin.hot-chilli.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://bin.moritz-fromm.de/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.i2pd.xyz/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.momobako.com/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.taiga-san.net/",
-			[]Expiry{Hour, Day, Week, Month, Year},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://sw-servers.net/pb/",
-			[]Expiry{Hour, Day, Week, Month, Year},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://wtf.roflcopter.fr/paste/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://awalcon.org/private/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.acab.io/",
-			[]Expiry{Hour, Day, Week, Month, Year},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://zb.zerosgaming.de/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://code.wt.pt/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://gilles.wittezaele.fr/paste/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://tromland.org/privatebin/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://www.c787898.com/paste/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://paste.dismail.de/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://paste.tuxcloud.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://files.iya.at/",
-			[]Expiry{Hour, Day, Week},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://bin.iya.at/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://pb.nwsec.de/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://privatebin.freinetz.ch/",
-			[]Expiry{Hour, Day, Week, Month, Year},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://bin.nixnet.services/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://zerobin.farcy.me/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.tildeverse.org/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.biocrafting.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://vim.cx/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://0.jaegers.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://paste.jaegers.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://privatebin.at/",
-			[]Expiry{Hour, Day, Week, Month, Year},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.oneway.pro/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.rollenspiel.monster/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://paste.whispers.us/",
-			[]Expiry{Day, Month, Never},
-			[]Feature{Burn, UploadFile},
-		},
-		{"https://bin.xsden.info/",
-			[]Expiry{Hour, Day, Week},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://extrait.facil.services/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://ookris.usermd.net/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
-		{"https://paste.tech-port.de/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://bin.lznet.dev/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, UploadFile, ShortenURL},
-		},
-		{"https://bin.bissisoft.com/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion},
-		},
-		{"https://bin.hopon.cam/",
-			[]Expiry{Hour, Day, Week, Month, Year, Never},
-			[]Feature{Burn, Discussion, UploadFile},
-		},
+		{"https://0.jaegers.net", allExpiries, standardFeatures},
+		{"https://anonpaste.org", allExpiries, standardFeatures},
+		{"https://bonus01.hwb0307.com", allExpiries, standardFeatures},
+		{"https://enjoys.rocks", allExpiries, standardFeatures},
+		{"https://lukisko.eu/privbin/", allExpiries, standardFeatures},
+		{"https://paste.coalserver.de", allExpiries, standardFeatures},
+		{"https://paste.plus", allExpiries, standardFeatures},
+		{"https://paste.skynetcloud.site", allExpiries, standardFeatures},
+		{"https://privatebin.net", allExpiries, standardFeatures},
+		{"https://0.0g.gg", allExpiries, standardFeatures},
+		{"https://03c.de", allExpiries, standardFeatures},
+		{"https://0g.gg", allExpiries, standardFeatures},
+		{"https://b.opnxng.com", allExpiries, standardFeatures},
+		{"https://bin.2255.me", allExpiries, standardFeatures},
+		{"https://bin.garbaye.fr", allExpiries, standardFeatures},
+		{"https://cryptostorm.is/paste/", allExpiries, standardFeatures},
+		{"https://extrait.facil.services", allExpiries, standardFeatures},
+		{"https://notebin.de", allExpiries, standardFeatures},
+		{"https://notizen.freifunk-ba.de", allExpiries, standardFeatures},
+		{"https://p.blueridgedebate.com", allExpiries, standardFeatures},
+		{"https://p.darklab.sh", allExpiries, standardFeatures},
+		{"https://paste.dvotx.org", allExpiries, standardFeatures},
+		{"https://paste.evolix.org", allExpiries, standardFeatures},
+		{"https://paste.gnoppix.org", allExpiries, standardFeatures},
+		{"https://paste.hostux.net", allExpiries, standardFeatures},
+		{"https://paste.kcastner.de", allExpiries, standardFeatures},
+		{"https://paste.momou.ch", allExpiries, standardFeatures},
+		{"https://paste.unredacted.org", allExpiries, standardFeatures},
+		{"https://pasted.space", allExpiries, standardFeatures},
+		{"https://pb.envs.net", allExpiries, standardFeatures},
+		{"https://pb.fbin.in", allExpiries, standardFeatures},
+		{"https://pb.greep.fr", allExpiries, standardFeatures},
+		{"https://pb.jaska.cc", allExpiries, standardFeatures},
+		{"https://pb.moonshadow.dev", allExpiries, standardFeatures},
+		{"https://privatebin.app", allExpiries, standardFeatures},
+		{"https://privatebin.eurosystem.it", allExpiries, standardFeatures},
+		{"https://privatebin.lol", allExpiries, standardFeatures},
+		{"https://privatebin.rinuploads.org", allExpiries, standardFeatures},
+		{"https://textbin.quick-space.de", allExpiries, standardFeatures},
+		{"https://www.noteshare.net", allExpiries, standardFeatures},
+		{"https://paste.systemli.org", allExpiries, standardFeatures},
+		{"https://paste.worf.win", allExpiries, standardFeatures},
+		{"https://b.appinn.net", allExpiries, standardFeatures},
+		{"https://geheimvandesmit.nl", allExpiries, standardFeatures},
+		{"https://bin.graveyard.sh", allExpiries, standardFeatures},
+		{"https://bin.rtb.gg", allExpiries, standardFeatures},
+		{"https://paste.apphoster.cc", allExpiries, standardFeatures},
+		{"https://paste.elyday.net", allExpiries, standardFeatures},
+		{"https://paste.hostify.cz", allExpiries, standardFeatures},
+		{"https://cpaste.org", allExpiries, standardFeatures},
+		{"https://paste.shreven.org", allExpiries, standardFeatures},
+		{"https://secure.insys.fr", allExpiries, standardFeatures},
+		{"https://snip.dssr.ch", allExpiries, standardFeatures},
+		{"https://titok.csi.pet", allExpiries, standardFeatures},
+		{"https://vadian.cc", allExpiries, standardFeatures},
+		{"https://bin.disroot.org", allExpiries, standardFeatures},
+		{"https://bin.hbubli.cc", allExpiries, standardFeatures},
+		{"https://bin.sasach.work", allExpiries, standardFeatures},
+		{"https://bin.tiekoetter.com", allExpiries, standardFeatures},
+		{"https://p.dousse.eu", allExpiries, standardFeatures},
+		{"https://privatebin.devol.it", allExpiries, standardFeatures},
+		{"https://bin.infini.fr", allExpiries, standardFeatures},
+		{"https://encryp.ch/note/", allExpiries, standardFeatures},
+		{"https://paste.cracktek.eu", allExpiries, standardFeatures},
+		{"https://zbin.io", allExpiries, standardFeatures},
+		{"https://bin.bloat.cat", allExpiries, standardFeatures},
+		{"https://bin.habedieeh.re", allExpiries, standardFeatures},
+		{"https://bin.iya.at", allExpiries, standardFeatures},
+		{"https://bin.outv.im", allExpiries, standardFeatures},
+		{"https://p.kll.li", allExpiries, standardFeatures},
+		{"https://paste.aya.so", allExpiries, standardFeatures},
+		{"https://paste.blazar.observer", allExpiries, standardFeatures},
+		{"https://paste.craftum.pl", allExpiries, standardFeatures},
+		{"https://paste.d-ku.de", allExpiries, standardFeatures},
+		{"https://paste.dismail.de", allExpiries, standardFeatures},
+		{"https://paste.gstd.eu", allExpiries, standardFeatures},
+		{"https://paste.mayhem.academy", allExpiries, standardFeatures},
+		{"https://paste.rbn.gr", allExpiries, standardFeatures},
+		{"https://paste.rys.pw", allExpiries, standardFeatures},
+		{"https://paste.stratum0.org", allExpiries, standardFeatures},
+		{"https://paste.trove.cz", allExpiries, standardFeatures},
+		{"https://pb.1337-it.net", allExpiries, standardFeatures},
+		{"https://privatebin.diyarciftci.xyz", allExpiries, standardFeatures},
+		{"https://secret.adelphi.de", allExpiries, standardFeatures},
+		{"https://t25b.com", allExpiries, standardFeatures},
 	} {
 		u, err := url.Parse(h.api)
 		if err != nil || u == nil {
@@ -406,15 +217,6 @@ func (d *db) filterHosts(ex Expiry, feats []Feature) []*host {
 	return mixHosts(hsts)
 }
 
-func (h *host) ping() bool {
-	c, err := net.DialTimeout("tcp", net.JoinHostPort(h.api.Hostname(), "443"), 5*time.Second)
-	if err != nil {
-		return false
-	}
-	defer c.Close()
-	return c != nil
-}
-
 func (e Expiry) String() string {
 	switch e {
 	case Hour:
@@ -445,50 +247,12 @@ func (e Expiry) String() string {
 	return ""
 }
 
-func findFastest(hsts []*host) *host {
-	num := 25
-	if len(hsts) < num {
-		num = len(hsts)
-	}
-	type result struct {
-		h       *host
-		elapsed time.Duration
-	}
-	fastestChan := make(chan *host)
-	resultsChan := make(chan result, num)
-	go func(in <-chan result, out chan<- *host) {
-		best := (*result)(nil)
-		for r := range in {
-			// gets smallest value
-			if best == nil || r.elapsed < best.elapsed {
-				best = &r
-			}
-		}
-		out <- best.h
-		close(out)
-	}(resultsChan, fastestChan)
-	wg := sync.WaitGroup{}
-	for _, hs := range hsts[:num] {
-		wg.Add(1)
-		go func(h *host, out chan<- result) {
-			defer wg.Done()
-			start := time.Now()
-			if h.ping() {
-				out <- result{h, time.Until(start)}
-			}
-		}(hs, resultsChan)
-	}
-	wg.Wait()
-	close(resultsChan)
-	return <-fastestChan
-}
-
 func mixHosts(hsts []*host) []*host {
 	rhts := []*host{}
 	mrand.Seed(time.Now().UnixNano())
 	mix := mrand.Perm(len(hsts))
 	for _, v := range mix {
-		rhts = append(hsts, hsts[v])
+		rhts = append(rhts, hsts[v])
 	}
 	return rhts
 }

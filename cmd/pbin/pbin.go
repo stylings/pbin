@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/url"
 	"os"
@@ -19,7 +18,7 @@ var (
 	outFile        string
 	password       string
 	replyTo        string
-	setExpiry	   string
+	setExpiry      string
 	base64Mode     bool
 	burnAfterRead  bool
 	openDiscussion bool
@@ -81,7 +80,6 @@ func init() {
 		case "-p", "-pass", "-password":
 			{
 				if !(len(args) > i+1) {
-					// TODO: generate random password?
 					panic("missing password arg")
 				}
 				password = args[i+1]
@@ -124,9 +122,9 @@ func put() error {
 		return err
 	}
 	if info.Mode()&os.ModeNamedPipe == 0 {
-		log.Fatalln("no pipe input, TODO print help")
+		log.Fatalln("no pipe input")
 	}
-	b, err := ioutil.ReadAll(os.Stdin)
+	b, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return err
 	}
@@ -166,7 +164,7 @@ func get() error {
 		}
 	}
 	if outFile != "" {
-		err = ioutil.WriteFile(outFile, b, 0644)
+		err = os.WriteFile(outFile, b, 0644)
 		if err != nil {
 			return err
 		}

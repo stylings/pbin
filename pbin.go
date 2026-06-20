@@ -2,7 +2,7 @@ package pbin
 
 import (
 	"bytes"
-	"compress/flate"
+	"compress/zlib"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -10,11 +10,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gearnode/base58"
 	"golang.org/x/crypto/pbkdf2"
@@ -26,12 +27,12 @@ const (
 	PasteIDSize          int    = 8      // bytes,hex
 	KDFSecretSize        int    = 32     // bytes
 	AESKeySize           int    = 32     // bytes
-	NonceSize            int    = 12     // bytes
+	NonceSize            int    = 16     // bytes
 	SaltSize             int    = 8      // bytes
 	TagSize              int    = 128    // bits??
 	EncryptionAlgorithm  string = "aes"
 	EncryptionMode       string = "gcm"
-	DataCompression      string = "zlib"
+	DataCompression      string = "none"
 
 	// expiry
 	// Hour	Expiry = "1hour"
@@ -45,8 +46,6 @@ const (
 	defaultFormat            string = formatSyntaxHighlighting
 	formatSyntaxHighlighting string = "syntaxhighlighting"
 	defaultExpiry            Expiry = Week
-	defaultOpenDiscussion    bool   = false
-	defaultBurnAfterReading  bool   = false
 )
 
 type (
@@ -65,7 +64,6 @@ type (
 		openDiscussion   bool
 		burnAfterReading bool
 		userPassword     string
-		shortURL 		 string
 	}
 	// Expiry string
 )
@@ -143,49 +141,60 @@ func (p *Paste) Send() (*url.URL, map[string]interface{}, error) {
 	reqb["adata"] = p.makeAData()
 	reqb["meta"] = map[string]interface{}{}
 	reqb["meta"].(map[string]interface{})["expire"] = p.expiry.String()
-	reqb["ct"] = base64.RawStdEncoding.EncodeToString(p.cipherJSONData)
+	reqb["ct"] = base64.StdEncoding.EncodeToString(p.cipherJSONData)
 	requestBodyJSONData, err := json.Marshal(&reqb)
 	if err != nil {
 		return nil, nil, err
 	}
 	hsts := hosts.filterHosts(p.expiry, p.getFeatures())
-	host := findFastest(hsts)
-	req, err := http.NewRequest(http.MethodPost, host.api.String(), bytes.NewBuffer(requestBodyJSONData))
-	if err != nil {
-		return nil, nil, err
+	if len(hsts) == 0 {
+		return nil, nil, errors.New("no matching PrivateBin hosts")
 	}
-	req.Header.Set("X-Requested-With", "JSONHttpRequest")
-	client := &http.Client{}
-	res, err := client.Do(req)
-	if err != nil {
-		return nil, nil, err
+	client := &http.Client{Timeout: 20 * time.Second}
+	var lastErr error
+	for _, host := range hsts {
+		req, err := http.NewRequest(http.MethodPost, host.api.String(), bytes.NewReader(requestBodyJSONData))
+		if err != nil {
+			return nil, nil, err
+		}
+		req.Header.Set("X-Requested-With", "JSONHttpRequest")
+		req.Header.Set("Content-Type", "application/json")
+		res, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		resBody, readErr := io.ReadAll(res.Body)
+		closeErr := res.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			continue
+		}
+		if closeErr != nil {
+			lastErr = closeErr
+			continue
+		}
+		if res.StatusCode != http.StatusOK {
+			lastErr = errors.New("error " + strconv.Itoa(res.StatusCode) + " from server: " + host.api.String() + "\nresponse body:" + string(resBody))
+			continue
+		}
+		resm := map[string]interface{}{}
+		err = json.Unmarshal(resBody, &resm)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resm["status"].(float64) != 0 {
+			lastErr = errors.New("error from server: " + resm["message"].(string))
+			continue
+		}
+		purl, err := url.Parse(host.api.String() + "?" + resm["id"].(string) + "#" + base58.Encode(p.urlSecret[:]))
+		if err != nil {
+			return nil, nil, err
+		}
+		return purl, resm, nil
 	}
-	defer res.Body.Close()
-	resBody, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, nil, err
-	}
-	if res.StatusCode != http.StatusOK {
-		return nil, nil, errors.New(
-			"error " + strconv.Itoa(res.StatusCode) +
-				"\nfrom server: " + host.api.String() +
-				"\nrequest body:" + string(requestBodyJSONData) +
-				"\nresponse body:" + string(resBody),
-		)
-	}
-	resm := map[string]interface{}{}
-	err = json.Unmarshal(resBody, &resm)
-	if err != nil {
-		return nil, nil, err
-	}
-	if resm["status"].(float64) != 0 {
-		return nil, nil, errors.New("error from server: " + resm["message"].(string))
-	}
-	purl, err := url.Parse(host.api.String() + "?" + resm["id"].(string) + "#" + base58.Encode(p.urlSecret[:]))
-	if err != nil {
-		return nil, nil, err
-	}
-	return purl, resm, nil
+	return nil, nil, lastErr
 }
 
 func randomBytes(n int) []byte {
@@ -215,7 +224,7 @@ func (p *Paste) encrypt() error {
 	if err != nil {
 		return err
 	}
-	gcm, err := cipher.NewGCM(c)
+	gcm, err := cipher.NewGCMWithNonceSize(c, NonceSize)
 	if err != nil {
 		return err
 	}
@@ -223,38 +232,18 @@ func (p *Paste) encrypt() error {
 	if err != nil {
 		return err
 	}
-	b := bytes.Buffer{}
-	w, err := flate.NewWriter(&b, flate.BestCompression)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(clearJSONData)
-	if err != nil {
-		return err
-	}
-	err = w.Close()
-	if err != nil {
-		return err
-	}
-	p.cipherJSONData = gcm.Seal(nil, p.nonce[:], b.Bytes(), adata)
+	p.cipherJSONData = gcm.Seal(nil, p.nonce[:], clearJSONData, adata)
 	return nil
 }
 
 func (p *Paste) getFeatures() []Feature {
-	// burn
-	// discussion
-	// upload file
-	// shortenurl
 	switch {
-		case p.openDiscussion && p.burnAfterReading: {
-			return []Feature{}
-		}
-		case p.openDiscussion && !p.burnAfterReading: {
-			return []Feature{Discussion}
-		}
-		case !p.openDiscussion && p.burnAfterReading: {
-			return []Feature{Burn}
-		}
+	case p.openDiscussion && p.burnAfterReading:
+		return []Feature{}
+	case p.openDiscussion && !p.burnAfterReading:
+		return []Feature{Discussion}
+	case !p.openDiscussion && p.burnAfterReading:
+		return []Feature{Burn}
 	}
 	return []Feature{}
 }
@@ -270,8 +259,8 @@ func (p *Paste) makeAData() []interface{} {
 	}
 	return []interface{}{
 		[]interface{}{
-			base64.RawStdEncoding.EncodeToString(p.nonce[:]), // IV
-			base64.RawStdEncoding.EncodeToString(p.salt[:]),  // salt
+			base64.StdEncoding.EncodeToString(p.nonce[:]), // IV
+			base64.StdEncoding.EncodeToString(p.salt[:]),  // salt
 			KDFIterations,
 			256,
 			TagSize,
@@ -297,9 +286,9 @@ func makeAESKey(secret []byte, salt []byte) []byte {
 
 func GetPaste(ur *url.URL) ([]byte, error) {
 	pID := ur.RawQuery
-	b58Pass := ur.Fragment
+	b58Pass := strings.TrimPrefix(ur.Fragment, "-")
 	hostURL := strings.Split(ur.String(), "?")[0]
-	pasteDataURL := hostURL + "?pasteid=" + pID
+	pasteDataURL := hostURL + "?" + pID
 	req, err := http.NewRequest(http.MethodGet, pasteDataURL, nil)
 	if err != nil {
 		return nil, err
@@ -311,7 +300,7 @@ func GetPaste(ur *url.URL) ([]byte, error) {
 		return nil, err
 	}
 	defer res.Body.Close()
-	b, err := ioutil.ReadAll(res.Body)
+	b, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -324,26 +313,30 @@ func GetPaste(ur *url.URL) ([]byte, error) {
 	if v, ok := m["ct"]; !ok {
 		return nil, errors.New("missing ct")
 	} else {
-		p.cipherJSONData, err = base64.RawStdEncoding.DecodeString(v.(string))
+		p.cipherJSONData, err = decodeBase64(v.(string))
 		if err != nil {
 			return nil, err
 		}
 	}
 	adatav := (interface{})(nil)
+	compression := "none"
 	if v, ok := m["adata"]; !ok {
 		return nil, errors.New("missing adata")
 	} else {
-		nonceData, err := base64.RawStdEncoding.DecodeString(((v.([]interface{})[0]).([]interface{})[0]).(string)) // wtf
+		nonceData, err := decodeBase64(((v.([]interface{})[0]).([]interface{})[0]).(string)) // wtf
 		if err != nil {
 			return nil, err
 		}
 		copy(p.nonce[:], nonceData)
-		saltData, err := base64.RawStdEncoding.DecodeString(((v.([]interface{})[0]).([]interface{})[1]).(string)) // wtf
+		saltData, err := decodeBase64(((v.([]interface{})[0]).([]interface{})[1]).(string)) // wtf
 		if err != nil {
 			return nil, err
 		}
 		copy(p.salt[:], saltData)
 		adatav = v
+		if c, ok := ((v.([]interface{})[0]).([]interface{})[7]).(string); ok {
+			compression = c
+		}
 	}
 	secret, err := base58.Decode(b58Pass)
 	if err != nil {
@@ -354,7 +347,7 @@ func GetPaste(ur *url.URL) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	gcm, err := cipher.NewGCM(c)
+	gcm, err := cipher.NewGCMWithNonceSize(c, len(p.nonce))
 	if err != nil {
 		return nil, err
 	}
@@ -366,11 +359,17 @@ func GetPaste(ur *url.URL) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	fr := flate.NewReader(bytes.NewBuffer(flated))
-	defer fr.Close()
-	unflated, err := ioutil.ReadAll(fr)
-	if err != nil {
-		return nil, err
+	unflated := flated
+	if compression == "zlib" {
+		fr, err := zlib.NewReader(bytes.NewBuffer(flated))
+		if err != nil {
+			return nil, err
+		}
+		defer fr.Close()
+		unflated, err = io.ReadAll(fr)
+		if err != nil {
+			return nil, err
+		}
 	}
 	pd := map[string]interface{}{}
 	err = json.Unmarshal(unflated, &pd)
@@ -381,4 +380,12 @@ func GetPaste(ur *url.URL) ([]byte, error) {
 		return []byte(v.(string)), nil
 	}
 	return nil, errors.New("missing paste data")
+}
+
+func decodeBase64(s string) ([]byte, error) {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err == nil {
+		return b, nil
+	}
+	return base64.RawStdEncoding.DecodeString(s)
 }
