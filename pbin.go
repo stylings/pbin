@@ -2,6 +2,7 @@ package pbin
 
 import (
 	"bytes"
+	"compress/flate"
 	"compress/zlib"
 	"crypto/aes"
 	"crypto/cipher"
@@ -285,6 +286,10 @@ func makeAESKey(secret []byte, salt []byte) []byte {
 }
 
 func GetPaste(ur *url.URL) ([]byte, error) {
+	return GetPasteWithPassword(ur, "")
+}
+
+func GetPasteWithPassword(ur *url.URL, password string) ([]byte, error) {
 	pID := ur.RawQuery
 	b58Pass := strings.TrimPrefix(ur.Fragment, "-")
 	hostURL := strings.Split(ur.String(), "?")[0]
@@ -342,6 +347,9 @@ func GetPaste(ur *url.URL) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if password != "" {
+		secret = append(secret, []byte(password)...)
+	}
 	aesKey := makeAESKey(secret, p.salt[:])
 	c, err := aes.NewCipher(aesKey)
 	if err != nil {
@@ -361,12 +369,7 @@ func GetPaste(ur *url.URL) ([]byte, error) {
 	}
 	unflated := flated
 	if compression == "zlib" {
-		fr, err := zlib.NewReader(bytes.NewBuffer(flated))
-		if err != nil {
-			return nil, err
-		}
-		defer fr.Close()
-		unflated, err = io.ReadAll(fr)
+		unflated, err = decompressZlib(flated)
 		if err != nil {
 			return nil, err
 		}
@@ -380,6 +383,15 @@ func GetPaste(ur *url.URL) ([]byte, error) {
 		return []byte(v.(string)), nil
 	}
 	return nil, errors.New("missing paste data")
+}
+
+func decompressZlib(b []byte) ([]byte, error) {
+	fr, err := zlib.NewReader(bytes.NewBuffer(b))
+	if err != nil {
+		fr = flate.NewReader(bytes.NewBuffer(b))
+	}
+	defer fr.Close()
+	return io.ReadAll(fr)
 }
 
 func decodeBase64(s string) ([]byte, error) {

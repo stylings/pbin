@@ -153,7 +153,7 @@ func put() error {
 }
 
 func get() error {
-	b, err := pbin.GetPaste(getURL)
+	b, err := pbin.GetPasteWithPassword(getURL, password)
 	if err != nil {
 		return err
 	}

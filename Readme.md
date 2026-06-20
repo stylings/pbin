@@ -91,6 +91,12 @@ Upload Paste with password protection:
 $ echo "anything" | pbin -password mySecretPassw0rd
 ```
 
+Download Paste with password protection:
+
+```
+$ pbin $URL -password mySecretPassw0rd
+```
+
 ## Expiry Options
 
 You can set the expiry with one of these arguments, only when creating a paste:
