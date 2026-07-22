@@ -1,5 +1,11 @@
+/pbin
+/bin/
+/dist/
+/coverage.out
+
+# Local caches and editor state
+/.cache/
 scratch
 .DS_Store
-cmd/pbin/build.tgz
-cmd/pbin/build
-cmd/pbin/build/**
+*.swp
+*.tmp
