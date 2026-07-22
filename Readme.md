@@ -20,8 +20,10 @@ go install github.com/stylings/pbin/cmd/pbin@latest
 or build from this checkout:
 
 ```
-go build -o pbin ./cmd/pbin
+make build
 ```
+
+the binary is written to `bin/pbin`.
 
 # Basic Usage:
 
