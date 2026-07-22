@@ -2,33 +2,31 @@ name: release
 
 on:
   push:
-    branches: [master]
-    paths: [VERSION]
+    tags:
+      - "v*"
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  goreleaser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
-          go-version: stable
-      - name: build and release
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          v="v$(tr -d '[:space:]' < VERSION)"
-          if gh release view "$v" > /dev/null 2>&1; then
-            echo "release $v already exists, skipping"
-            exit 0
-          fi
-          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
-            os="${t%/*}" arch="${t#*/}" ext=""
-            [ "$os" = windows ] && ext=".exe"
-            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-              go build -trimpath -ldflags '-s -w' -o "pbin-$os-$arch$ext" ./cmd/pbin
-          done
-          gh release create "$v" pbin-* --title "$v" --generate-notes
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
